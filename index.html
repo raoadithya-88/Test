@@ -2929,11 +2929,36 @@
       lucide.createIcons();
 
       // 2. DISPATCH AUTOMATED CONFIRMATION RECEIPT TO NODE.JS BACKEND
-      console.log('Dispatching automated booking confirmation to backend server...');
-
-      // Dynamic backend host resolution (supports ngrok parameter, local testing, or current origin)
       const urlParams = new URLSearchParams(window.location.search);
-      const apiHost = urlParams.get('backend') || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
+      
+      // Determine backend URL
+      let apiHost = urlParams.get('backend') || urlParams.get('api');
+      
+      if (!apiHost) {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          apiHost = 'http://localhost:3000';
+        } else {
+          // Check localStorage
+          apiHost = localStorage.getItem('astrology_bot_backend');
+          if (!apiHost) {
+            apiHost = prompt('Please enter your live ngrok backend URL (e.g., https://your-id.ngrok-free.app):');
+            if (apiHost) {
+              apiHost = apiHost.trim().replace(/\/+$/, '');
+              localStorage.setItem('astrology_bot_backend', apiHost);
+            }
+          }
+        }
+      }
+
+      if (!apiHost) {
+        console.warn('No backend URL provided. Receipt cannot be dispatched.');
+        showErrorToast('Backend server URL missing. Please enter your ngrok URL.');
+        return;
+      }
+
+      // Ensure no trailing slash
+      apiHost = apiHost.replace(/\/+$/, '');
+      console.log(`Connecting to backend at: ${apiHost}/api/consultation-booked`);
 
       const payload = {
         phone: cleanPhone,
@@ -2942,12 +2967,12 @@
         tob: tobVal,
         place: placeVal,
         txnId: txn,
+        price: priceVal,
         amount: priceVal,
         questions: selectedQuestionsList
       };
 
       try {
-        // Attempt POST to /api/consultation-booked on your server
         const response = await fetch(`${apiHost}/api/consultation-booked`, {
           method: 'POST',
           headers: {
@@ -2957,13 +2982,17 @@
         });
 
         if (response.ok) {
-          console.log('✅ Automated WhatsApp receipt sent successfully via backend!');
+          const resData = await response.json();
+          console.log('✅ Automated WhatsApp receipt sent successfully via backend!', resData);
           showToast('WhatsApp confirmation receipt delivered!');
         } else {
-          console.warn('Backend responded with status:', response.status);
+          const errData = await response.json().catch(() => ({}));
+          console.error('Backend rejected receipt:', response.status, errData);
+          showErrorToast(`Server error (${response.status}). Check Node.js terminal.`);
         }
       } catch (err) {
-        console.error('Could not reach backend webhook directly from browser:', err);
+        console.error('Network error connecting to backend:', err);
+        showErrorToast('Could not reach bot server. Is ngrok running?');
       }
     }
 
